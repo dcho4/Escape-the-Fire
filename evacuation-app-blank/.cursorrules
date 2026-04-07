@@ -1,0 +1,5 @@
+# Evacuation app — project scope
+
+- Treat **this folder** (`evacuation-app-blank`) as the only Expo/React Native app root for this project.
+- Add or change app code **here only**, not under the parent `ETF` directory or sibling folders, unless the user explicitly asks otherwise.
+- Run commands from `evacuation-app-blank` (e.g. `npx expo start`).
