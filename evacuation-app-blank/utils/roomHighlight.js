@@ -54,4 +54,39 @@ function getHighlightedRoomForUser(userLocation, floor, maxDistance = 0.22) {
   return best;
 }
 
-module.exports = { getHighlightedRoomForUser };
+/** Normalized map units: how close a point must be to snap a landmark name for hazard copy. */
+const NEAR_LANDMARK_FOR_COPY = 0.11;
+
+function pct01(v) {
+  return Math.round(Math.max(0, Math.min(1, v)) * 100);
+}
+
+/**
+ * Short phrase for UI when placing a hazard (fire) on the map.
+ * @param {number} floor
+ * @param {number} x
+ * @param {number} y
+ */
+function describeMapPointForHazard(floor, x, y) {
+  const nodes = getNodesForFloor(floor);
+  if (!nodes.length) {
+    return `about ${pct01(x)}% from the left, ${pct01(y)}% from the top`;
+  }
+  let best = nodes[0];
+  let bestD2 = dist2(x, y, best.x, best.y);
+  for (let i = 1; i < nodes.length; i += 1) {
+    const n = nodes[i];
+    const d2 = dist2(x, y, n.x, n.y);
+    if (d2 < bestD2) {
+      bestD2 = d2;
+      best = n;
+    }
+  }
+  const d = Math.sqrt(bestD2);
+  if (d <= NEAR_LANDMARK_FOR_COPY) {
+    return `next to ${best.label}`;
+  }
+  return `around ${pct01(x)}% from the left edge and ${pct01(y)}% from the top`;
+}
+
+module.exports = { getHighlightedRoomForUser, describeMapPointForHazard };

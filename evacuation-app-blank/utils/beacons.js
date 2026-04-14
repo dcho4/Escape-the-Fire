@@ -2,8 +2,11 @@
  * BlueCharm (or compatible) beacon registry for indoor positioning.
  *
  * HOW TO USE:
- * - Replace `beaconId` with the UUID / MAC / advertised id your firmware uses
- *   (whatever `react-native-ble-plx` exposes as device.id or service data).
+ * - `beaconId` is the key emitted by the BLE scanner and used by `locationEstimator`.
+ * - Native scan (`services/bleScanner.js`, `useMock:false`) matches each advertisement to a row by:
+ *   - `beaconId` as substring of `device.name`, `device.localName`, or `device.id`, or
+ *   - optional `bleNames`: substrings to match against advertised names (case-insensitive), or
+ *   - optional `bleDeviceIdSubstrings`: substrings of `device.id` (useful on Android MAC-style ids).
  * - Set `floor`, `x`, `y` in normalized map coordinates (0..1) for that floor’s PNG.
  * - Add more rows as you install beacons in the building.
  *

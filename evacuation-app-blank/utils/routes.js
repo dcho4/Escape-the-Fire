@@ -10,119 +10,58 @@
 
 // • Nodes (rooms, halls, stairs, exits): edit `utils/floorNodes.js`.
 
-// • Graph edges for future pathfinding: edit `utils/floorGraph.js`.
+// • Graph / accessibility: `utils/floorNodes.js` + `utils/floorGraph.js` (floors 1–2).
 
-// • These polylines are legacy presets until graph-based routing replaces them.
+// • Polylines here are fallbacks when graph routing cannot build a path.
 
 
 
 const routesByFloor = {
-
   1: [
-
     {
-
-      id: "f1_exitA",
-
+      id: "f1_exit1",
       points: [
-
-        { x: 0.2, y: 0.8 },
-
-        { x: 0.2, y: 0.5 },
-
-        { x: 0.1, y: 0.2 },
-
+        { x: 0.55, y: 0.5 },
+        { x: 0.4724, y: 0.5236 },
+        { x: 0.4719, y: 0.5444 },
       ],
-
     },
-
     {
-
-      id: "f1_exitB",
-
+      id: "f1_exit2",
       points: [
-
-        { x: 0.2, y: 0.8 },
-        { x: 0.55, y: 0.8 },
-
-        { x: 0.9, y: 0.85 },
-
+        { x: 0.55, y: 0.5 },
+        { x: 0.5964, y: 0.5229 },
+        { x: 0.5979, y: 0.5431 },
       ],
-
     },
-
     {
-
-      id: "f1_exitC",
-
+      id: "f1_exit3",
       points: [
-
-        { x: 0.2, y: 0.8 },
-
-        { x: 0.45, y: 0.55 },
-
-        { x: 0.75, y: 0.35 },
-
-        { x: 0.9, y: 0.15 },
-
+        { x: 0.55, y: 0.5 },
+        { x: 0.4, y: 0.5194 },
+        { x: 0.3870, y: 0.5257 },
       ],
-
     },
-
   ],
 
   2: [
-
     {
-
-      id: "f2_stairsWest",
-
+      id: "f2_exit1",
       points: [
-
-        { x: 0.75, y: 0.75 },
-
-        { x: 0.5, y: 0.75 },
-
-        { x: 0.2, y: 0.7 },
-
-        { x: 0.1, y: 0.5 },
-
+        { x: 0.5057, y: 0.4618 },
+        { x: 0.5437, y: 0.3924 },
+        { x: 0.5026, y: 0.4028 },
       ],
-
     },
-
     {
-
-      id: "f2_stairsEast",
-
+      id: "f2_exit2",
       points: [
-
-        { x: 0.75, y: 0.75 },
-
-        { x: 0.85, y: 0.6 },
-
-        { x: 0.9, y: 0.4 },
-
+        { x: 0.5057, y: 0.4618 },
+        { x: 0.5437, y: 0.3924 },
+        { x: 0.6062, y: 0.3174 },
+        { x: 0.6453, y: 0.3889 },
       ],
-
     },
-
-    {
-
-      id: "f2_stairsNorth",
-
-      points: [
-
-        { x: 0.75, y: 0.75 },
-
-        { x: 0.75, y: 0.45 },
-
-        { x: 0.6, y: 0.2 },
-
-      ],
-
-    },
-
   ],
 
 };

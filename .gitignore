@@ -1,0 +1,21 @@
+# Dependencies
+**/node_modules/
+
+# Expo / Metro
+**/.expo/
+.expo/
+dist/
+web-build/
+.metro-health-check*
+
+# Logs
+npm-debug.*
+yarn-debug.*
+yarn-error.*
+
+# OS / editor
+.DS_Store
+
+# Old/alternate app folder (keep out of repo)
+evacuation-app/
+

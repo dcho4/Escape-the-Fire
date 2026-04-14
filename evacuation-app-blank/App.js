@@ -10,18 +10,25 @@ const {
   Platform,
 } = require("react-native");
 const { GestureHandlerRootView } = require("react-native-gesture-handler");
+const { useSafeAreaInsets } = require("react-native-safe-area-context");
 const { StatusBar } = require("expo-status-bar");
 
 const MapView = require("./components/MapView");
-const { getRoutesForFloor } = require("./utils/routes");
+const { getEvacuationRoutesForFloor } = require("./utils/evacuationRoutes");
 const { getSafestRoute } = require("./utils/pathfinding");
 const { createFireZone } = require("./utils/fireZones");
 const { startBleScanning } = require("./services/bleScanner");
 const { estimateLocationFromRssi } = require("./utils/locationEstimator");
 const { FLOORS, getFloorConfig } = require("./utils/floorConfig");
-const { getNodesForPublicMapOverlay, getNodesForDevOverlay } = require("./utils/floorNodes");
-const { getMockLocationForFloor, pickUserLocation } = require("./utils/locationSource");
-const { getHighlightedRoomForUser } = require("./utils/roomHighlight");
+const { getNodesForDevOverlay } = require("./utils/floorNodes");
+const {
+  pickUserLocation,
+  getMockLocationPresets,
+  resolveMockLocation,
+  getDefaultMockPresetIdForFloor,
+} = require("./utils/locationSource");
+const { getHighlightedRoomForUser, describeMapPointForHazard } = require("./utils/roomHighlight");
+const { getRouteDisplayTitle } = require("./utils/evacuationRoutes");
 
 /**
  * Indoor evacuation UI — SVG vector base map + normalized overlays.
@@ -32,9 +39,15 @@ const { getHighlightedRoomForUser } = require("./utils/roomHighlight");
  * • Dev mode: tap map for coordinates; all node labels visible.
  */
 
-function FloorChip({ label, active, onPress }) {
+function FloorChip({ label, active, onPress, accessibilityLabel }) {
   return (
-    <Pressable onPress={onPress} style={[styles.chip, active && styles.chipActive]}>
+    <Pressable
+      onPress={onPress}
+      style={[styles.chip, active && styles.chipActive, styles.floorChipCompact]}
+      accessibilityRole="button"
+      accessibilityState={{ selected: !!active }}
+      accessibilityLabel={accessibilityLabel || `Switch to ${label}`}
+    >
       <Text style={[styles.chipLabel, active && styles.chipLabelActive]}>{label}</Text>
     </Pressable>
   );
@@ -45,11 +58,14 @@ function makeDevMarkerId() {
 }
 
 module.exports = function App() {
+  const insets = useSafeAreaInsets();
   const [floor, setFloor] = React.useState(1);
   const [adminMode, setAdminMode] = React.useState(false);
   const [devMode, setDevMode] = React.useState(false);
   const [fireZones, setFireZones] = React.useState([]);
   const [moreTools, setMoreTools] = React.useState(false);
+  const [sheetVisible, setSheetVisible] = React.useState(true);
+  const [sheetOpen, setSheetOpen] = React.useState(false);
 
   const [bleEnabled, setBleEnabled] = React.useState(false);
   const [bleMock, setBleMock] = React.useState(true);
@@ -61,23 +77,33 @@ module.exports = function App() {
 
   const [devMarkers, setDevMarkers] = React.useState([]);
   const [lastDevCoord, setLastDevCoord] = React.useState(null);
+  const [mockLocationPresetId, setMockLocationPresetId] = React.useState(() =>
+    getDefaultMockPresetIdForFloor(1)
+  );
 
   const floorConfig = React.useMemo(() => getFloorConfig(floor), [floor]);
+  const mockLocationPresets = React.useMemo(() => getMockLocationPresets(floor), [floor]);
 
   const SvgMap = floorConfig?.mapType === "svg" ? floorConfig.svgComponent : null;
 
   const mapNodes = React.useMemo(() => {
-    return devMode ? getNodesForDevOverlay(floor) : getNodesForPublicMapOverlay(floor);
+    // Only show nodes when authoring in Dev mode (keeps the map uncluttered).
+    return devMode ? getNodesForDevOverlay(floor) : [];
   }, [floor, devMode]);
 
   const userLocation = React.useMemo(() => {
+    const mockLocation = resolveMockLocation(floor, mockLocationPresetId);
     return pickUserLocation({
       floor,
-      mockLocation: getMockLocationForFloor(floor),
+      mockLocation,
       bleEnabled,
       bleEstimated,
     });
-  }, [floor, bleEnabled, bleEstimated]);
+  }, [floor, bleEnabled, bleEstimated, mockLocationPresetId]);
+
+  React.useEffect(() => {
+    setMockLocationPresetId(getDefaultMockPresetIdForFloor(floor));
+  }, [floor]);
 
   const highlightedRoom = React.useMemo(
     () => getHighlightedRoomForUser(userLocation, floor),
@@ -102,7 +128,7 @@ module.exports = function App() {
     });
   }, [bleEnabled, bleMock, floor]);
 
-  const routes = React.useMemo(() => getRoutesForFloor(floor), [floor]);
+  const routes = React.useMemo(() => getEvacuationRoutesForFloor(floor, userLocation), [floor, userLocation]);
 
   const bestRoute = React.useMemo(() => {
     return getSafestRoute({
@@ -113,8 +139,20 @@ module.exports = function App() {
     });
   }, [userLocation, routes, fireZones, floor]);
 
+  const fireNoticeContent = React.useMemo(() => {
+    if (!fireZones.length) return null;
+    const lines = fireZones.map((z, i) => {
+      const fCfg = getFloorConfig(z.floor);
+      const where = describeMapPointForHazard(z.floor, z.x, z.y);
+      return `${i + 1}. ${fCfg.label}: ${where}`;
+    });
+    const n = fireZones.length;
+    const title = n === 1 ? "Hazard location" : `${n} hazards`;
+    return { title, body: lines.join("\n") };
+  }, [fireZones]);
+
   function addFireAt({ floor: f, x, y }) {
-    setFireZones((prev) => [...prev, createFireZone({ floor: f, x, y, radius: 0.08 })]);
+    setFireZones((prev) => [...prev, createFireZone({ floor: f, x, y, radius: 0.01125 })]);
   }
 
   function onDevTap({ floor: f, x, y }) {
@@ -126,123 +164,263 @@ module.exports = function App() {
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaView style={styles.safe}>
           <StatusBar style="light" />
-          {/* Status / route card (maps-style top sheet) */}
-          <View style={styles.topCard}>
-            <Text style={styles.appTitle}>Evacuation</Text>
-            {highlightedRoom ? (
-              <View style={styles.youAreHere}>
-                <Text style={styles.youAreHereLabel}>You appear to be in</Text>
-                <Text style={styles.youAreHereValue} numberOfLines={1}>
-                  {highlightedRoom.label}
-                </Text>
+          <View style={styles.screen}>
+            <View style={styles.mapFullscreen}>
+              <MapView
+                floor={floor}
+                svgMapComponent={SvgMap}
+                mapNodes={mapNodes}
+                userLocation={userLocation}
+                highlightedRoom={highlightedRoom}
+                route={bestRoute}
+                fireZones={fireZones}
+                adminMode={adminMode}
+                devMode={devMode}
+                onAddFireZone={addFireAt}
+                onDevTap={onDevTap}
+                devMarkers={devMarkers.filter((m) => m.floor === floor)}
+                recenterTick={recenterTick}
+                followUser={followUser}
+                fitMode="cover"
+                fullBleed
+              />
+              <View
+                style={[styles.floorBar, { bottom: Math.max(insets.bottom, 10) + 8, right: 12 }]}
+                pointerEvents="box-none"
+              >
+                <Text style={styles.floorBarLabel}>Floor</Text>
+                <View style={styles.floorBarChips}>
+                  {FLOORS.map((f) => (
+                    <FloorChip
+                      key={f.id}
+                      label={f.id === 1 ? "1" : "2"}
+                      active={floor === f.id}
+                      onPress={() => setFloor(f.id)}
+                      accessibilityLabel={`${f.label}. ${floor === f.id ? "Selected" : "Tap to select"}`}
+                    />
+                  ))}
+                </View>
+              </View>
+            </View>
+
+            {/* Dropdown header (always on top unless deleted) */}
+            {sheetVisible ? (
+              <View style={styles.sheetWrap} pointerEvents="box-none">
+                <View style={styles.sheetHeaderRow}>
+                  <Pressable
+                    onPress={() => setSheetOpen((v) => !v)}
+                    style={styles.sheetHeader}
+                    accessibilityRole="button"
+                    accessibilityLabel={sheetOpen ? "Collapse evacuation panel" : "Expand evacuation panel"}
+                  >
+                    <Text style={styles.sheetTitle}>Evacuation</Text>
+                    <Text style={styles.sheetChevron}>{sheetOpen ? "▼" : "▲"}</Text>
+                  </Pressable>
+                  <Pressable
+                    onPress={() => setSheetVisible(false)}
+                    style={styles.sheetClose}
+                    accessibilityRole="button"
+                    accessibilityLabel="Hide evacuation panel"
+                  >
+                    <Text style={styles.sheetCloseText}>✕</Text>
+                  </Pressable>
+                </View>
+
+                {sheetOpen ? (
+                  <View style={styles.topCard}>
+                    {highlightedRoom ? (
+                      <View style={styles.youAreHere}>
+                        <Text style={styles.youAreHereLabel}>You appear to be in</Text>
+                        <Text style={styles.youAreHereValue} numberOfLines={1}>
+                          {highlightedRoom.label}
+                        </Text>
+                      </View>
+                    ) : (
+                      <View style={styles.youAreHereMuted}>
+                        <Text style={styles.youAreHereMutedText}>Position: corridor / unknown area</Text>
+                      </View>
+                    )}
+                    {bestRoute ? (
+                      <View style={styles.routeOk}>
+                        <Text style={styles.routeOkLabel}>Active route</Text>
+                        <Text style={styles.routeOkValue} numberOfLines={2}>
+                          {getRouteDisplayTitle(floor, bestRoute.id)}
+                        </Text>
+                      </View>
+                    ) : (
+                      <View style={styles.routeWarn}>
+                        <Text style={styles.routeWarnTitle}>No safe route</Text>
+                        <Text style={styles.routeWarnSub}>Clear hazards or change floor.</Text>
+                      </View>
+                    )}
+                    {fireNoticeContent ? (
+                      <View style={styles.fireNotice}>
+                        <Text style={styles.fireNoticeLabel}>{fireNoticeContent.title}</Text>
+                        <Text style={styles.fireNoticeText}>{fireNoticeContent.body}</Text>
+                      </View>
+                    ) : null}
+                    {lastDevCoord && devMode ? (
+                      <Text style={styles.devCoordMono} numberOfLines={2}>
+                        {lastDevCoord}
+                      </Text>
+                    ) : null}
+
+                    <View style={styles.quickActionsRow}>
+                      <Pressable
+                        onPress={() => setMoreTools(!moreTools)}
+                        style={styles.moreToggle}
+                        accessibilityRole="button"
+                        accessibilityLabel={moreTools ? "Hide tools and sensors" : "Show tools and sensors"}
+                      >
+                        <Text style={styles.moreToggleText}>{moreTools ? "Hide tools ▲" : "Tools & sensors ▼"}</Text>
+                      </Pressable>
+                      <Pressable
+                        onPress={() => setFireZones([])}
+                        style={[styles.clearFiresBtn, fireZones.length === 0 && styles.clearFiresBtnDisabled]}
+                        disabled={fireZones.length === 0}
+                        accessibilityRole="button"
+                        accessibilityLabel="Remove all fires"
+                        accessibilityHint="Clears all hazard zones on all floors"
+                      >
+                        <Text style={styles.clearFiresBtnText}>Remove all fires</Text>
+                      </Pressable>
+                    </View>
+
+                    {moreTools ? (
+                      <ScrollView style={styles.toolsScroll} nestedScrollEnabled keyboardShouldPersistTaps="handled">
+                        <View style={styles.toolRow}>
+                          <Text style={styles.toolLabel}>Admin · hazard</Text>
+                          <Switch
+                            value={adminMode}
+                            onValueChange={setAdminMode}
+                            accessibilityLabel="Admin mode"
+                            accessibilityHint="When enabled, tapping the map places a hazard"
+                            trackColor={{ false: "#334155", true: "rgba(239, 68, 68, 0.55)" }}
+                            thumbColor={adminMode ? "#fecaca" : "#64748b"}
+                          />
+                        </View>
+                        <View style={styles.toolRow}>
+                          <Text style={styles.toolLabel}>Dev · coords & nodes</Text>
+                          <Switch
+                            value={devMode}
+                            onValueChange={setDevMode}
+                            accessibilityLabel="Developer mode"
+                            accessibilityHint="When enabled, map taps show coordinates and nodes are visible"
+                            trackColor={{ false: "#334155", true: "rgba(14, 165, 233, 0.5)" }}
+                            thumbColor={devMode ? "#7dd3fc" : "#64748b"}
+                          />
+                        </View>
+                        <View style={styles.toolRow}>
+                          <Text style={styles.toolLabel}>BLE position</Text>
+                          <Switch
+                            value={bleEnabled}
+                            onValueChange={setBleEnabled}
+                            accessibilityLabel="Bluetooth position"
+                            accessibilityHint="Uses BLE beacons to estimate your position"
+                          />
+                        </View>
+                        <View style={styles.toolRow}>
+                          <Text style={[styles.toolLabel, !bleEnabled && styles.muted]}>BLE mock RSSI</Text>
+                          <Switch
+                            value={bleMock}
+                            onValueChange={setBleMock}
+                            disabled={!bleEnabled}
+                            accessibilityLabel="Use mock Bluetooth signal"
+                            accessibilityHint="Simulates BLE readings for testing"
+                          />
+                        </View>
+                        <View style={styles.toolRow}>
+                          <Text style={styles.toolLabel}>Follow user</Text>
+                          <Switch
+                            value={followUser}
+                            onValueChange={setFollowUser}
+                            accessibilityLabel="Follow user"
+                            accessibilityHint="Keeps the map centered on your position"
+                          />
+                        </View>
+                        <View style={styles.presetSection}>
+                          <Text style={styles.toolLabel}>Test position (mock)</Text>
+                          <Text style={[styles.toolHint, bleEnabled && styles.toolHintWarn]}>
+                            {bleEnabled
+                              ? "Turn off BLE position to drive the dot from presets below."
+                              : "Tap a room to snap the user dot there and see routing / room highlight."}
+                          </Text>
+                          <View style={styles.presetChipWrap}>
+                            {mockLocationPresets.map((p) => {
+                              const active = mockLocationPresetId === p.id;
+                              return (
+                                <Pressable
+                                  key={p.id}
+                                  onPress={() => {
+                                    if (!bleEnabled) setMockLocationPresetId(p.id);
+                                  }}
+                                  style={[
+                                    styles.presetChip,
+                                    active && styles.presetChipActive,
+                                    bleEnabled && styles.presetChipDisabled,
+                                  ]}
+                                  accessibilityRole="button"
+                                  accessibilityLabel={`Test position ${p.label}`}
+                                  accessibilityState={{ selected: active, disabled: bleEnabled }}
+                                >
+                                  <Text
+                                    style={[styles.presetChipText, active && styles.presetChipTextActive]}
+                                    numberOfLines={1}
+                                  >
+                                    {p.label}
+                                  </Text>
+                                </Pressable>
+                              );
+                            })}
+                          </View>
+                        </View>
+                        <Pressable
+                          onPress={() => setRecenterTick((t) => t + 1)}
+                          style={styles.secondaryBtn}
+                          accessibilityRole="button"
+                          accessibilityLabel="Recenter map"
+                        >
+                          <Text style={styles.secondaryBtnText}>Recenter map</Text>
+                        </Pressable>
+                        <View style={styles.bottomActions}>
+                          <Pressable
+                            onPress={() => setFireZones([])}
+                            style={[styles.miniBtn, styles.miniBtnOutline]}
+                            accessibilityRole="button"
+                            accessibilityLabel="Clear hazards"
+                          >
+                            <Text style={styles.miniBtnText}>Clear hazards</Text>
+                          </Pressable>
+                          <Pressable
+                            onPress={() => {
+                              setDevMarkers([]);
+                              setLastDevCoord(null);
+                            }}
+                            style={[styles.miniBtn, styles.miniBtnOutline]}
+                            accessibilityRole="button"
+                            accessibilityLabel="Clear developer pins"
+                          >
+                            <Text style={styles.miniBtnText}>Clear dev pins</Text>
+                          </Pressable>
+                        </View>
+                      </ScrollView>
+                    ) : null}
+                  </View>
+                ) : null}
               </View>
             ) : (
-              <View style={styles.youAreHereMuted}>
-                <Text style={styles.youAreHereMutedText}>Position: corridor / unknown area</Text>
-              </View>
-            )}
-            <View style={styles.chipRow}>
-              {FLOORS.map((f) => (
-                <FloorChip key={f.id} label={f.label} active={floor === f.id} onPress={() => setFloor(f.id)} />
-              ))}
-            </View>
-          {bestRoute ? (
-            <View style={styles.routeOk}>
-              <Text style={styles.routeOkLabel}>Active route</Text>
-              <Text style={styles.routeOkValue} numberOfLines={1}>
-                {bestRoute.id}
-              </Text>
-            </View>
-          ) : (
-            <View style={styles.routeWarn}>
-              <Text style={styles.routeWarnTitle}>No safe route</Text>
-              <Text style={styles.routeWarnSub}>Clear hazards or change floor.</Text>
-            </View>
-          )}
-          {lastDevCoord && devMode ? (
-            <Text style={styles.devCoordMono} numberOfLines={2}>
-              {lastDevCoord}
-            </Text>
-          ) : null}
-          <Pressable onPress={() => setMoreTools(!moreTools)} style={styles.moreToggle}>
-            <Text style={styles.moreToggleText}>{moreTools ? "Hide tools ▲" : "Tools & sensors ▼"}</Text>
-          </Pressable>
-          {moreTools ? (
-            <ScrollView style={styles.toolsScroll} nestedScrollEnabled keyboardShouldPersistTaps="handled">
-              <View style={styles.toolRow}>
-                <Text style={styles.toolLabel}>Admin · hazard</Text>
-                <Switch
-                  value={adminMode}
-                  onValueChange={setAdminMode}
-                  trackColor={{ false: "#334155", true: "rgba(239, 68, 68, 0.55)" }}
-                  thumbColor={adminMode ? "#fecaca" : "#64748b"}
-                />
-              </View>
-              <View style={styles.toolRow}>
-                <Text style={styles.toolLabel}>Dev · coords & nodes</Text>
-                <Switch
-                  value={devMode}
-                  onValueChange={setDevMode}
-                  trackColor={{ false: "#334155", true: "rgba(14, 165, 233, 0.5)" }}
-                  thumbColor={devMode ? "#7dd3fc" : "#64748b"}
-                />
-              </View>
-              <View style={styles.toolRow}>
-                <Text style={styles.toolLabel}>BLE position</Text>
-                <Switch value={bleEnabled} onValueChange={setBleEnabled} />
-              </View>
-              <View style={styles.toolRow}>
-                <Text style={[styles.toolLabel, !bleEnabled && styles.muted]}>BLE mock RSSI</Text>
-                <Switch value={bleMock} onValueChange={setBleMock} disabled={!bleEnabled} />
-              </View>
-              <View style={styles.toolRow}>
-                <Text style={styles.toolLabel}>Follow user</Text>
-                <Switch value={followUser} onValueChange={setFollowUser} />
-              </View>
               <Pressable
-                onPress={() => setRecenterTick((t) => t + 1)}
-                style={styles.secondaryBtn}
+                onPress={() => {
+                  setSheetVisible(true);
+                  setSheetOpen(true);
+                }}
+                style={styles.restorePill}
+                accessibilityRole="button"
+                accessibilityLabel="Show evacuation panel"
               >
-                <Text style={styles.secondaryBtnText}>Recenter map</Text>
+                <Text style={styles.restorePillText}>Evacuation ▾</Text>
               </Pressable>
-              <View style={styles.bottomActions}>
-                <Pressable
-                  onPress={() => setFireZones([])}
-                  style={[styles.miniBtn, styles.miniBtnOutline]}
-                >
-                  <Text style={styles.miniBtnText}>Clear hazards</Text>
-                </Pressable>
-                <Pressable
-                  onPress={() => {
-                    setDevMarkers([]);
-                    setLastDevCoord(null);
-                  }}
-                  style={[styles.miniBtn, styles.miniBtnOutline]}
-                >
-                  <Text style={styles.miniBtnText}>Clear dev pins</Text>
-                </Pressable>
-              </View>
-            </ScrollView>
-          ) : null}
-          </View>
-
-          <View style={styles.mapShell}>
-            <MapView
-              floor={floor}
-              svgMapComponent={SvgMap}
-              mapNodes={mapNodes}
-              userLocation={userLocation}
-              highlightedRoom={highlightedRoom}
-              route={bestRoute}
-              fireZones={fireZones}
-              adminMode={adminMode}
-              devMode={devMode}
-              onAddFireZone={addFireAt}
-              onDevTap={onDevTap}
-              devMarkers={devMarkers.filter((m) => m.floor === floor)}
-              recenterTick={recenterTick}
-              followUser={followUser}
-            />
+            )}
           </View>
         </SafeAreaView>
     </GestureHandlerRootView>
@@ -254,9 +432,76 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: "#0b1220",
   },
+  screen: { flex: 1 },
+  mapFullscreen: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  floorBar: {
+    position: "absolute",
+    alignItems: "flex-end",
+    zIndex: 20,
+    elevation: 8,
+  },
+  floorBarLabel: {
+    fontSize: 10,
+    fontWeight: "800",
+    color: "#94a3b8",
+    textTransform: "uppercase",
+    letterSpacing: 1,
+    marginBottom: 6,
+    marginRight: 2,
+  },
+  floorBarChips: {
+    flexDirection: "row",
+    gap: 8,
+  },
+  sheetWrap: {
+    position: "absolute",
+    left: 12,
+    right: 12,
+    top: 8,
+  },
+  sheetHeaderRow: { flexDirection: "row", alignItems: "center", gap: 10 },
+  sheetHeader: {
+    flex: 1,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderRadius: 16,
+    backgroundColor: "rgba(21, 34, 56, 0.92)",
+    borderWidth: 1,
+    borderColor: "rgba(56, 189, 248, 0.35)",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  sheetTitle: { fontSize: 16, fontWeight: "900", color: "#f8fafc", letterSpacing: 0.2 },
+  sheetChevron: { fontSize: 14, fontWeight: "900", color: "#7dd3fc" },
+  sheetClose: {
+    width: 44,
+    height: 44,
+    borderRadius: 14,
+    backgroundColor: "rgba(21, 34, 56, 0.92)",
+    borderWidth: 1,
+    borderColor: "rgba(148, 163, 184, 0.25)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  sheetCloseText: { fontSize: 16, fontWeight: "900", color: "#e2e8f0" },
+  restorePill: {
+    position: "absolute",
+    left: 12,
+    top: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    borderRadius: 16,
+    backgroundColor: "rgba(21, 34, 56, 0.92)",
+    borderWidth: 1,
+    borderColor: "rgba(56, 189, 248, 0.35)",
+  },
+  restorePillText: { color: "#e0f2fe", fontWeight: "900" },
+
   topCard: {
-    marginHorizontal: 12,
-    marginTop: 8,
+    marginTop: 10,
     padding: 14,
     backgroundColor: "#152238",
     borderRadius: 18,
@@ -268,13 +513,7 @@ const styles = StyleSheet.create({
     shadowRadius: 12,
     elevation: 4,
   },
-  appTitle: {
-    fontSize: 22,
-    fontWeight: "800",
-    color: "#f8fafc",
-    marginBottom: 8,
-    letterSpacing: 0.3,
-  },
+  appTitle: { fontSize: 22, fontWeight: "800", color: "#f8fafc", marginBottom: 8, letterSpacing: 0.3 },
   youAreHere: {
     marginBottom: 12,
     paddingVertical: 10,
@@ -306,6 +545,14 @@ const styles = StyleSheet.create({
   chipActive: { backgroundColor: "rgba(14, 165, 233, 0.35)", borderColor: "#38bdf8" },
   chipLabel: { fontSize: 13, fontWeight: "600", color: "#94a3b8" },
   chipLabelActive: { color: "#e0f2fe" },
+  floorChipCompact: {
+    minWidth: 44,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    backgroundColor: "rgba(21, 34, 56, 0.94)",
+    borderWidth: 1,
+    borderColor: "rgba(56, 189, 248, 0.4)",
+  },
   routeOk: {
     backgroundColor: "rgba(34, 197, 94, 0.15)",
     borderRadius: 12,
@@ -324,15 +571,43 @@ const styles = StyleSheet.create({
   },
   routeWarnTitle: { fontSize: 15, fontWeight: "800", color: "#fca5a5" },
   routeWarnSub: { fontSize: 13, color: "#cbd5e1", marginTop: 4 },
+  fireNotice: {
+    marginTop: 10,
+    backgroundColor: "rgba(251, 146, 60, 0.12)",
+    borderRadius: 12,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: "rgba(251, 146, 60, 0.4)",
+  },
+  fireNoticeLabel: { fontSize: 11, fontWeight: "700", color: "#fdba74", textTransform: "uppercase", letterSpacing: 0.7 },
+  fireNoticeText: { fontSize: 14, fontWeight: "600", color: "#ffedd5", marginTop: 4, lineHeight: 20 },
   devCoordMono: {
     marginTop: 10,
     fontFamily: Platform.OS === "ios" ? "Menlo" : "monospace",
     fontSize: 12,
     color: "#7dd3fc",
   },
-  moreToggle: { marginTop: 12, paddingVertical: 6 },
+  quickActionsRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    marginTop: 12,
+  },
+  moreToggle: { flex: 1, paddingVertical: 10 },
   moreToggleText: { fontSize: 13, fontWeight: "700", color: "#38bdf8" },
-  toolsScroll: { maxHeight: 220, marginTop: 4 },
+  clearFiresBtn: {
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+    backgroundColor: "rgba(239, 68, 68, 0.18)",
+    borderWidth: 1,
+    borderColor: "rgba(248, 113, 113, 0.55)",
+  },
+  clearFiresBtnDisabled: {
+    opacity: 0.45,
+  },
+  clearFiresBtnText: { fontSize: 13, fontWeight: "800", color: "#fecaca" },
+  toolsScroll: { maxHeight: 340, marginTop: 4 },
   toolRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -342,6 +617,30 @@ const styles = StyleSheet.create({
     borderBottomColor: "rgba(148, 163, 184, 0.2)",
   },
   toolLabel: { fontSize: 14, color: "#e2e8f0", fontWeight: "500" },
+  toolHint: { fontSize: 12, color: "#94a3b8", marginTop: 6, lineHeight: 16 },
+  toolHintWarn: { color: "#fcd34d" },
+  presetSection: {
+    paddingVertical: 10,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: "rgba(148, 163, 184, 0.2)",
+  },
+  presetChipWrap: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 10 },
+  presetChip: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 14,
+    backgroundColor: "rgba(30, 41, 59, 0.95)",
+    borderWidth: 1,
+    borderColor: "rgba(148, 163, 184, 0.3)",
+    maxWidth: "100%",
+  },
+  presetChipActive: {
+    backgroundColor: "rgba(14, 165, 233, 0.28)",
+    borderColor: "#38bdf8",
+  },
+  presetChipDisabled: { opacity: 0.45 },
+  presetChipText: { fontSize: 12, fontWeight: "600", color: "#94a3b8" },
+  presetChipTextActive: { color: "#e0f2fe" },
   muted: { color: "#64748b" },
   secondaryBtn: {
     marginTop: 12,
@@ -361,10 +660,4 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(15, 23, 42, 0.6)",
   },
   miniBtnText: { fontSize: 13, fontWeight: "700", color: "#cbd5e1" },
-  mapShell: {
-    flex: 1,
-    margin: 12,
-    marginTop: 10,
-    minHeight: 200,
-  },
 });
