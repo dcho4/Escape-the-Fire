@@ -141,7 +141,15 @@ function getSafestRoute({ location, routes, fireZones, floor }) {
     return pa - pb;
   });
 
-  for (const r of scored) {
+  const isStairsRoute = (r) => r && r.kind === "stairs";
+
+  // Try non-stairs routes first; only suggest stairs when there is no safe exit route.
+  for (const r of scored.filter((r) => !isStairsRoute(r))) {
+    if (routeIsValid(r._fullPoints, fireZonesOnFloor)) {
+      return { id: r.id, points: r._fullPoints, distance: r._distance };
+    }
+  }
+  for (const r of scored.filter(isStairsRoute)) {
     if (routeIsValid(r._fullPoints, fireZonesOnFloor)) {
       return { id: r.id, points: r._fullPoints, distance: r._distance };
     }

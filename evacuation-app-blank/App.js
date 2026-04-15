@@ -128,16 +128,38 @@ module.exports = function App() {
     });
   }, [bleEnabled, bleMock, floor]);
 
-  const routes = React.useMemo(() => getEvacuationRoutesForFloor(floor, userLocation), [floor, userLocation]);
+  const { bestRoute, routeTitleFloor } = React.useMemo(() => {
+    const routesHere = getEvacuationRoutesForFloor(floor, userLocation);
+    if (floor === 1) {
+      const routes1 = getEvacuationRoutesForFloor(1, userLocation);
+      const on1 = getSafestRoute({
+        location: userLocation,
+        routes: routes1,
+        fireZones,
+        floor: 1,
+      });
+      if (on1) return { bestRoute: on1, routeTitleFloor: 1 };
 
-  const bestRoute = React.useMemo(() => {
-    return getSafestRoute({
+      const routes2 = getEvacuationRoutesForFloor(2, userLocation);
+      const on2 = getSafestRoute({
+        location: userLocation,
+        routes: routes2,
+        fireZones,
+        floor: 2,
+      });
+      return { bestRoute: on2, routeTitleFloor: on2 ? 2 : 1 };
+    }
+
+    const onF = getSafestRoute({
       location: userLocation,
-      routes,
+      routes: routesHere,
       fireZones,
       floor,
     });
-  }, [userLocation, routes, fireZones, floor]);
+    return { bestRoute: onF, routeTitleFloor: floor };
+  }, [userLocation, fireZones, floor]);
+
+  const mapRoute = bestRoute && floor === routeTitleFloor ? bestRoute : null;
 
   const fireNoticeContent = React.useMemo(() => {
     if (!fireZones.length) return null;
@@ -152,7 +174,7 @@ module.exports = function App() {
   }, [fireZones]);
 
   function addFireAt({ floor: f, x, y }) {
-    setFireZones((prev) => [...prev, createFireZone({ floor: f, x, y, radius: 0.01125 })]);
+    setFireZones((prev) => [...prev, createFireZone({ floor: f, x, y, radius: 0.016875 })]);
   }
 
   function onDevTap({ floor: f, x, y }) {
@@ -172,7 +194,7 @@ module.exports = function App() {
                 mapNodes={mapNodes}
                 userLocation={userLocation}
                 highlightedRoom={highlightedRoom}
-                route={bestRoute}
+                route={mapRoute}
                 fireZones={fireZones}
                 adminMode={adminMode}
                 devMode={devMode}
@@ -244,8 +266,13 @@ module.exports = function App() {
                       <View style={styles.routeOk}>
                         <Text style={styles.routeOkLabel}>Active route</Text>
                         <Text style={styles.routeOkValue} numberOfLines={2}>
-                          {getRouteDisplayTitle(floor, bestRoute.id)}
+                          {getRouteDisplayTitle(routeTitleFloor, bestRoute.id)}
                         </Text>
+                        {floor === 1 && routeTitleFloor === 2 ? (
+                          <Text style={styles.routeFloorHint} numberOfLines={2}>
+                            Path is on floor 2 — switch to floor 2 to see it on the map.
+                          </Text>
+                        ) : null}
                       </View>
                     ) : (
                       <View style={styles.routeWarn}>
@@ -562,6 +589,7 @@ const styles = StyleSheet.create({
   },
   routeOkLabel: { fontSize: 12, color: "#86efac", fontWeight: "700" },
   routeOkValue: { fontSize: 15, color: "#f0fdf4", fontWeight: "800", marginTop: 4 },
+  routeFloorHint: { fontSize: 12, color: "#bbf7d0", marginTop: 6, lineHeight: 16 },
   routeWarn: {
     backgroundColor: "rgba(239, 68, 68, 0.14)",
     borderRadius: 12,

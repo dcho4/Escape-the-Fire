@@ -60,15 +60,19 @@ const F1_EXIT_GOALS = [
   { goalId: "f1_exit_3", routeId: "f1_exit3", priority: 2 },
 ];
 
+const F1_STAIRS_GOALS = [
+  { goalId: "f1_stairs_e2", routeId: "f1_stairs_e2", priority: 999, kind: "stairs" },
+];
+
 const F2_EXIT_GOALS = [
   { goalId: "f2_exit_1", routeId: "f2_exit1", priority: 0 },
   { goalId: "f2_exit_2", routeId: "f2_exit2", priority: 1 },
-  { goalId: "f2_exit_8", routeId: "f2_exit_mid", priority: 2 },
-  { goalId: "f2_exit_7", routeId: "f2_exit_door_s", priority: 3 },
-  { goalId: "f2_exit_3", routeId: "f2_exit_door_e1", priority: 4 },
-  { goalId: "f2_exit_4", routeId: "f2_exit_door_e2", priority: 5 },
-  { goalId: "f2_exit_5", routeId: "f2_exit_door_w1", priority: 6 },
-  { goalId: "f2_exit_6", routeId: "f2_exit_door_w2", priority: 7 },
+  { goalId: "f2_exit_7", routeId: "f2_exit_door_s", priority: 2 },
+  { goalId: "f2_exit_3", routeId: "f2_exit_door_e1", priority: 3 },
+  { goalId: "f2_exit_4", routeId: "f2_exit_door_e2", priority: 4 },
+  { goalId: "f2_exit_6", routeId: "f2_exit_door_w2", priority: 5 },
+  { goalId: "f2_exit_north_room", routeId: "f2_exit_north_room", priority: 6 },
+  { goalId: "f2_exit_bb_n", routeId: "f2_exit_bb_n", priority: 7 },
 ];
 
 const SNAP_MERGE_EPS = 0.002;
@@ -93,13 +97,13 @@ function getEvacuationRoutesForFloor(floor, userLocation) {
   const startId = pickGraphRoutingStartId(userLocation, floor);
   if (!startId) return staticRoutes;
 
-  const goals = floor === 1 ? F1_EXIT_GOALS : F2_EXIT_GOALS;
+  const goals = floor === 1 ? [...F1_EXIT_GOALS, ...F1_STAIRS_GOALS] : F2_EXIT_GOALS;
   const out = [];
-  for (const { goalId, routeId, priority } of goals) {
+  for (const { goalId, routeId, priority, kind } of goals) {
     const pathIds = shortestPath(floor, startId, goalId);
     if (!pathIds || pathIds.length < 2) {
       const fallback = staticRoutes.find((r) => r.id === routeId);
-      if (fallback) out.push({ ...fallback, priority });
+      if (fallback) out.push({ ...fallback, priority, kind });
       continue;
     }
     let pts = pathIdsToPoints(pathIds);
@@ -108,7 +112,7 @@ function getEvacuationRoutesForFloor(floor, userLocation) {
     } else {
       pts = [{ x: userLocation.x, y: userLocation.y }, ...pts.slice(1)];
     }
-    out.push({ id: routeId, points: pts, priority });
+    out.push({ id: routeId, points: pts, priority, kind, nodeIds: pathIds });
   }
 
   return out.length > 0 ? out : staticRoutes;
@@ -120,7 +124,8 @@ function getEvacuationRoutesForFloor(floor, userLocation) {
  * @param {string} routeId
  */
 function getRouteDisplayTitle(floor, routeId) {
-  const goals = floor === 1 ? F1_EXIT_GOALS : floor === 2 ? F2_EXIT_GOALS : [];
+  const goals =
+    floor === 1 ? [...F1_EXIT_GOALS, ...F1_STAIRS_GOALS] : floor === 2 ? F2_EXIT_GOALS : [];
   const hit = goals.find((g) => g.routeId === routeId);
   if (hit) {
     const node = getNodeById(hit.goalId);

@@ -56,7 +56,8 @@ const FLOOR_1_ACCESSIBLE_NODE_IDS = {
   f1_room_tiny_1: ["f1_room_move_4"],
   f1_room_tiny_2: ["f1_room_move_4"],
   f1_hall_mid: ["f1_room_move_1", "f1_hall_e", "f1_hall_w_s"],
-  f1_hall_e: ["f1_exit_2", "f1_hall_mid", "f1_hall_e_pre"],
+  f1_hall_e: ["f1_exit_2", "f1_hall_mid", "f1_hall_e_pre", "f1_stairs_e2"],
+  f1_stairs_e2: ["f1_hall_e"],
   f1_hall_e_pre: ["f1_hall_e", "f1_room_misc"],
   f1_room_misc: ["f1_hall_e_pre"],
 };
@@ -70,12 +71,11 @@ const FLOOR_2_ACCESSIBLE_NODE_IDS = {
   f2_exit_2: ["f2_hall_n2"],
   f2_exit_3: ["f2_room_basketball_court_2"],
   f2_exit_4: ["f2_room_basketball_court_3"],
-  f2_exit_5: ["f2_hall_w_exit_w1"],
   f2_exit_6: ["f2_hall_w_exit_w2"],
   f2_exit_7: ["f2_room_basketball_court_3", "f2_room_teens", "f2_hall_s_courts"],
-  f2_exit_8: ["f2_hall_e2"],
   f2_hall_e1: ["f2_hall_e2", "f2_hall_w5", "f2_room_cafe_2"],
-  f2_hall_e2: ["f2_exit_8", "f2_hall_e1", "f2_hall_e3", "f2_room_cafe_2"],
+  f2_hall_e2: ["f2_hall_e1", "f2_hall_e3", "f2_room_cafe_2", "f2_stairs_e2"],
+  f2_stairs_e2: ["f2_hall_e2"],
   // E3 → Teens: via f2_hall_n3 only. No direct E3–ec_mid (would shortcut past N3 now that ec_mid links the E-courts hall → Teens).
   f2_hall_e3: ["f2_hall_e2", "f2_hall_n3"],
   // NE mid ↔ E mid (courts): links the north-east spine to the courts hall (avoids forcing Teens as only bridge).
@@ -83,7 +83,7 @@ const FLOOR_2_ACCESSIBLE_NODE_IDS = {
   f2_hall_n1: ["f2_hall_e1", "f2_hall_test"],
   f2_hall_n2: ["f2_exit_2", "f2_hall_n3", "f2_hall_test", "f2_room_offices"],
   f2_hall_n3: ["f2_hall_e3", "f2_hall_n2", "f2_hall_ec_mid", "f2_room_teens", "f2_room_ne_n3"],
-  f2_hall_test: ["f2_exit_1", "f2_hall_n1", "f2_room_basketball"],
+  f2_hall_test: ["f2_exit_1", "f2_hall_n1", "f2_room_basketball", "f2_room_north_test"],
   f2_hall_w1: [
     "f2_hall_w_exit_w1",
     "f2_hall_w_jog",
@@ -107,11 +107,14 @@ const FLOOR_2_ACCESSIBLE_NODE_IDS = {
   f2_hall_w3: ["f2_hall_w2", "f2_hall_w4", "f2_room_classroom_4"],
   f2_hall_w4: ["f2_hall_w3", "f2_hall_w5", "f2_room_cafe_2", "f2_room_cafe_3"],
   f2_hall_w5: ["f2_hall_e1", "f2_hall_w4", "f2_room_cafe", "f2_room_cafe_2"],
-  f2_hall_w_exit_w1: ["f2_exit_5", "f2_hall_w1", "f2_hall_w2", "f2_hall_w_jog", "f2_room_youth"],
+  f2_hall_w_exit_w1: ["f2_hall_w1", "f2_hall_w2", "f2_hall_w_jog", "f2_room_youth"],
   f2_hall_w_exit_w2: ["f2_exit_6", "f2_hall_w2", "f2_hall_w_bridge", "f2_hall_w_jog", "f2_room_youth"],
   f2_hall_w_jog: ["f2_hall_w1", "f2_hall_w2", "f2_hall_w_exit_w1", "f2_hall_w_exit_w2", "f2_room_youth"],
   f2_room_6_game: ["f2_hall_w1"],
-  f2_room_basketball: ["f2_hall_test"],
+  f2_room_basketball: ["f2_hall_test", "f2_exit_bb_n"],
+  f2_room_north_test: ["f2_hall_test", "f2_exit_north_room"],
+  f2_exit_north_room: ["f2_room_north_test"],
+  f2_exit_bb_n: ["f2_room_basketball"],
   f2_room_basketball_court_2: [
     "f2_exit_3",
     "f2_exit_4",
@@ -320,7 +323,16 @@ const NODES_BY_FLOOR = {
 
     { id: "f1_exit_1", label: "Exit 1", floor: 1, type: "exit", x: 0.4719, y: 0.5444 },
     { id: "f1_exit_2", label: "Exit 2", floor: 1, type: "exit", x: 0.5979, y: 0.5431 },
-    { id: "f1_exit_3", label: "Exit 3", floor: 1, type: "exit", x: 0.3870, y: 0.5257 },
+    { id: "f1_exit_3", label: "Exit · W bridge", floor: 1, type: "exit", x: 0.4021, y: 0.5444 },
+    {
+      id: "f1_stairs_e2",
+      label: "Stairs (to floor 2)",
+      floor: 1,
+      type: "stairs",
+      x: 0.6224,
+      y: 0.5313,
+      meta: { linkedStairsId: "f2_stairs_e2" },
+    },
   ],
 
   // ---- Floor 2 (upper): add / adjust room & hallway nodes below ----
@@ -344,6 +356,16 @@ const NODES_BY_FLOOR = {
     { id: "f2_room_youth", label: "Youth", floor: 2, type: "room", x: 0.3625, y: 0.4993, roomRadius: 0.06, roomHighlightRadius: 0.048 },
 
     { id: "f2_room_basketball", label: "Basketball room", floor: 2, type: "room", x: 0.5276, y: 0.325, roomRadius: 0.075, roomHighlightRadius: 0.058 },
+    {
+      id: "f2_room_north_test",
+      label: "Room · N test hall",
+      floor: 2,
+      type: "room",
+      x: 0.4974,
+      y: 0.3792,
+      roomRadius: 0.055,
+      roomHighlightRadius: 0.045,
+    },
     { id: "f2_room_offices", label: "Offices", floor: 2, type: "room", x: 0.6062, y: 0.3174, roomRadius: 0.065, roomHighlightRadius: 0.05 },
     { id: "f2_room_cafe", label: "Cafe", floor: 2, type: "room", x: 0.5057, y: 0.4618, roomRadius: 0.055, roomHighlightRadius: 0.045 },
     { id: "f2_room_cafe_2", label: "Cafe 2", floor: 2, type: "room", x: 0.5094, y: 0.5479, roomRadius: 0.055, roomHighlightRadius: 0.045 },
@@ -440,10 +462,19 @@ const NODES_BY_FLOOR = {
     { id: "f2_exit_2", label: "Exit 2", floor: 2, type: "exit", x: 0.6453, y: 0.3889 },
     { id: "f2_exit_3", label: "Exit East 1", floor: 2, type: "exit", x: 0.8708, y: 0.4736 },
     { id: "f2_exit_4", label: "Exit East 2", floor: 2, type: "exit", x: 0.8182, y: 0.5681 },
-    { id: "f2_exit_5", label: "Exit West 1", floor: 2, type: "exit", x: 0.3406, y: 0.4299 },
     { id: "f2_exit_6", label: "Exit West 2", floor: 2, type: "exit", x: 0.3958, y: 0.4285 },
+    { id: "f2_exit_north_room", label: "Exit · N test hall", floor: 2, type: "exit", x: 0.4865, y: 0.3819 },
+    { id: "f2_exit_bb_n", label: "Exit · N basketball", floor: 2, type: "exit", x: 0.4849, y: 0.3618 },
     { id: "f2_exit_7", label: "Exit South", floor: 2, type: "exit", x: 0.7964, y: 0.6021 },
-    { id: "f2_exit_8", label: "Exit Mid", floor: 2, type: "exit", x: 0.6083, y: 0.5111 },
+    {
+      id: "f2_stairs_e2",
+      label: "Stairs (to floor 1)",
+      floor: 2,
+      type: "stairs",
+      x: 0.5714,
+      y: 0.5375,
+      meta: { linkedStairsId: "f1_stairs_e2" },
+    },
   ],
 };
 
