@@ -71,7 +71,7 @@ const F2_EXIT_GOALS = [
   { goalId: "f2_exit_3", routeId: "f2_exit_door_e1", priority: 3 },
   { goalId: "f2_exit_4", routeId: "f2_exit_door_e2", priority: 4 },
   { goalId: "f2_exit_6", routeId: "f2_exit_door_w2", priority: 5 },
-  { goalId: "f2_exit_north_room", routeId: "f2_exit_north_room", priority: 6 },
+  { goalId: "f2_exit_north_private", routeId: "f2_exit_north_private", priority: 6 },
   { goalId: "f2_exit_bb_n", routeId: "f2_exit_bb_n", priority: 7 },
 ];
 

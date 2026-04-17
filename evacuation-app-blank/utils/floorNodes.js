@@ -73,7 +73,7 @@ const FLOOR_2_ACCESSIBLE_NODE_IDS = {
   f2_exit_4: ["f2_room_basketball_court_3"],
   f2_exit_6: ["f2_hall_w_exit_w2"],
   f2_exit_7: ["f2_room_basketball_court_3", "f2_room_teens", "f2_hall_s_courts"],
-  f2_hall_e1: ["f2_hall_e2", "f2_hall_w5", "f2_room_cafe_2"],
+  f2_hall_e1: ["f2_hall_e2", "f2_hall_n1", "f2_hall_w5", "f2_room_cafe_2"],
   f2_hall_e2: ["f2_hall_e1", "f2_hall_e3", "f2_room_cafe_2", "f2_stairs_e2"],
   f2_stairs_e2: ["f2_hall_e2"],
   // E3 → Teens: via f2_hall_n3 only. No direct E3–ec_mid (would shortcut past N3 now that ec_mid links the E-courts hall → Teens).
@@ -83,7 +83,7 @@ const FLOOR_2_ACCESSIBLE_NODE_IDS = {
   f2_hall_n1: ["f2_hall_e1", "f2_hall_test"],
   f2_hall_n2: ["f2_exit_2", "f2_hall_n3", "f2_hall_test", "f2_room_offices"],
   f2_hall_n3: ["f2_hall_e3", "f2_hall_n2", "f2_hall_ec_mid", "f2_room_teens", "f2_room_ne_n3"],
-  f2_hall_test: ["f2_exit_1", "f2_hall_n1", "f2_room_basketball", "f2_room_north_test"],
+  f2_hall_test: ["f2_exit_1", "f2_hall_n1", "f2_room_basketball", "f2_room_north_private"],
   f2_hall_w1: [
     "f2_hall_w_exit_w1",
     "f2_hall_w_jog",
@@ -112,8 +112,8 @@ const FLOOR_2_ACCESSIBLE_NODE_IDS = {
   f2_hall_w_jog: ["f2_hall_w1", "f2_hall_w2", "f2_hall_w_exit_w1", "f2_hall_w_exit_w2", "f2_room_youth"],
   f2_room_6_game: ["f2_hall_w1"],
   f2_room_basketball: ["f2_hall_test", "f2_exit_bb_n"],
-  f2_room_north_test: ["f2_hall_test", "f2_exit_north_room"],
-  f2_exit_north_room: ["f2_room_north_test"],
+  f2_room_north_private: ["f2_exit_north_private"],
+  f2_exit_north_private: ["f2_room_north_private"],
   f2_exit_bb_n: ["f2_room_basketball"],
   f2_room_basketball_court_2: [
     "f2_exit_3",
@@ -357,12 +357,12 @@ const NODES_BY_FLOOR = {
 
     { id: "f2_room_basketball", label: "Basketball room", floor: 2, type: "room", x: 0.5276, y: 0.325, roomRadius: 0.075, roomHighlightRadius: 0.058 },
     {
-      id: "f2_room_north_test",
-      label: "Room · N test hall",
+      id: "f2_room_north_private",
+      label: "Room · N private",
       floor: 2,
       type: "room",
-      x: 0.4974,
-      y: 0.3792,
+      x: 0.4958,
+      y: 0.3778,
       roomRadius: 0.055,
       roomHighlightRadius: 0.045,
     },
@@ -463,7 +463,7 @@ const NODES_BY_FLOOR = {
     { id: "f2_exit_3", label: "Exit East 1", floor: 2, type: "exit", x: 0.8708, y: 0.4736 },
     { id: "f2_exit_4", label: "Exit East 2", floor: 2, type: "exit", x: 0.8182, y: 0.5681 },
     { id: "f2_exit_6", label: "Exit West 2", floor: 2, type: "exit", x: 0.3958, y: 0.4285 },
-    { id: "f2_exit_north_room", label: "Exit · N test hall", floor: 2, type: "exit", x: 0.4865, y: 0.3819 },
+    { id: "f2_exit_north_private", label: "Exit · N private", floor: 2, type: "exit", x: 0.4865, y: 0.3806 },
     { id: "f2_exit_bb_n", label: "Exit · N basketball", floor: 2, type: "exit", x: 0.4849, y: 0.3618 },
     { id: "f2_exit_7", label: "Exit South", floor: 2, type: "exit", x: 0.7964, y: 0.6021 },
     {
