@@ -71,7 +71,6 @@ const F2_EXIT_GOALS = [
   { goalId: "f2_exit_3", routeId: "f2_exit_door_e1", priority: 3 },
   { goalId: "f2_exit_4", routeId: "f2_exit_door_e2", priority: 4 },
   { goalId: "f2_exit_6", routeId: "f2_exit_door_w2", priority: 5 },
-  { goalId: "f2_exit_north_private", routeId: "f2_exit_north_private", priority: 6 },
   { goalId: "f2_exit_bb_n", routeId: "f2_exit_bb_n", priority: 7 },
 ];
 
@@ -97,7 +96,29 @@ function getEvacuationRoutesForFloor(floor, userLocation) {
   const startId = pickGraphRoutingStartId(userLocation, floor);
   if (!startId) return staticRoutes;
 
-  const goals = floor === 1 ? [...F1_EXIT_GOALS, ...F1_STAIRS_GOALS] : F2_EXIT_GOALS;
+  // Special case: N private room should never "escape" to other exits via static fallbacks.
+  // If the private exit is blocked (e.g. hazard placed on it), the correct result is "no safe route".
+  if (floor === 2 && startId === "f2_room_north_private") {
+    const out = [];
+    const goalId = "f2_exit_north_private";
+    const routeId = "f2_exit_north_private";
+    const priority = 6;
+    const pathIds = shortestPath(2, startId, goalId);
+    if (!pathIds || pathIds.length < 2) return [];
+    let pts = pathIdsToPoints(pathIds);
+    if (dist(userLocation, pts[0]) > SNAP_MERGE_EPS) {
+      pts = [{ x: userLocation.x, y: userLocation.y }, ...pts];
+    } else {
+      pts = [{ x: userLocation.x, y: userLocation.y }, ...pts.slice(1)];
+    }
+    out.push({ id: routeId, points: pts, priority, nodeIds: pathIds });
+    return out;
+  }
+
+  const goals =
+    floor === 1
+      ? [...F1_EXIT_GOALS, ...F1_STAIRS_GOALS]
+      : F2_EXIT_GOALS;
   const out = [];
   for (const { goalId, routeId, priority, kind } of goals) {
     const pathIds = shortestPath(floor, startId, goalId);

@@ -63,15 +63,6 @@ const routesByFloor = {
       ],
     },
     {
-      id: "f2_exit_north_private",
-      points: [
-        { x: 0.5057, y: 0.4618 },
-        { x: 0.5437, y: 0.3924 },
-        { x: 0.4958, y: 0.3778 },
-        { x: 0.4865, y: 0.3806 },
-      ],
-    },
-    {
       id: "f2_exit_bb_n",
       points: [
         { x: 0.5057, y: 0.4618 },

@@ -30,6 +30,13 @@ const {
 const { getHighlightedRoomForUser, describeMapPointForHazard } = require("./utils/roomHighlight");
 const { getRouteDisplayTitle } = require("./utils/evacuationRoutes");
 
+function perfNow() {
+  const p = globalThis.performance;
+  return p && typeof p.now === "function" ? p.now() : Date.now();
+}
+
+const REROUTE_HISTORY_SIZE = 5;
+
 /**
  * Indoor evacuation UI — SVG vector base map + normalized overlays.
  *
@@ -81,6 +88,12 @@ module.exports = function App() {
     getDefaultMockPresetIdForFloor(1)
   );
 
+  const [rerouteStats, setRerouteStats] = React.useState(null);
+  const lastRouteComputeRef = React.useRef(0);
+  const fireZonesLenTimingRef = React.useRef(0);
+  const fireSamplesRef = React.useRef([]);
+  const fireTapTimeRef = React.useRef(0);
+
   const floorConfig = React.useMemo(() => getFloorConfig(floor), [floor]);
   const mockLocationPresets = React.useMemo(() => getMockLocationPresets(floor), [floor]);
 
@@ -128,8 +141,11 @@ module.exports = function App() {
     });
   }, [bleEnabled, bleMock, floor]);
 
-  const { bestRoute, routeTitleFloor } = React.useMemo(() => {
+  const { bestRoute, routeTitleFloor, routeComputeMs } = React.useMemo(() => {
+    const t0 = perfNow();
     const routesHere = getEvacuationRoutesForFloor(floor, userLocation);
+    let bestRouteInner;
+    let routeTitleFloorInner;
     if (floor === 1) {
       const routes1 = getEvacuationRoutesForFloor(1, userLocation);
       const on1 = getSafestRoute({
@@ -138,26 +154,64 @@ module.exports = function App() {
         fireZones,
         floor: 1,
       });
-      if (on1) return { bestRoute: on1, routeTitleFloor: 1 };
-
-      const routes2 = getEvacuationRoutesForFloor(2, userLocation);
-      const on2 = getSafestRoute({
+      if (on1) {
+        bestRouteInner = on1;
+        routeTitleFloorInner = 1;
+      } else {
+        const routes2 = getEvacuationRoutesForFloor(2, userLocation);
+        const on2 = getSafestRoute({
+          location: userLocation,
+          routes: routes2,
+          fireZones,
+          floor: 2,
+        });
+        bestRouteInner = on2;
+        routeTitleFloorInner = on2 ? 2 : 1;
+      }
+    } else {
+      bestRouteInner = getSafestRoute({
         location: userLocation,
-        routes: routes2,
+        routes: routesHere,
         fireZones,
-        floor: 2,
+        floor,
       });
-      return { bestRoute: on2, routeTitleFloor: on2 ? 2 : 1 };
+      routeTitleFloorInner = floor;
+    }
+    const routeComputeMsInner = perfNow() - t0;
+    lastRouteComputeRef.current = routeComputeMsInner;
+    return {
+      bestRoute: bestRouteInner,
+      routeTitleFloor: routeTitleFloorInner,
+      routeComputeMs: routeComputeMsInner,
+    };
+  }, [userLocation, fireZones, floor]);
+
+  React.useLayoutEffect(() => {
+    const len = fireZones.length;
+    const prevLen = fireZonesLenTimingRef.current;
+
+    // Clear stats when all hazards are removed.
+    if (len === 0) {
+      fireZonesLenTimingRef.current = 0;
+      fireSamplesRef.current = [];
+      setRerouteStats(null);
+      return;
     }
 
-    const onF = getSafestRoute({
-      location: userLocation,
-      routes: routesHere,
-      fireZones,
-      floor,
-    });
-    return { bestRoute: onF, routeTitleFloor: floor };
-  }, [userLocation, fireZones, floor]);
+    // Track hazard adds only (len increases). Edits to existing zones aren't supported today.
+    if (len > prevLen) {
+      const computeMs = lastRouteComputeRef.current;
+      const e2eMs = Math.max(0, perfNow() - fireTapTimeRef.current);
+      const arr = fireSamplesRef.current;
+      arr.unshift({ computeMs, e2eMs });
+      if (arr.length > REROUTE_HISTORY_SIZE) arr.pop();
+    }
+
+    fireZonesLenTimingRef.current = len;
+
+    const arr = fireSamplesRef.current;
+    setRerouteStats(arr.length ? { recent: arr.map((s) => ({ computeMs: s.computeMs, e2eMs: s.e2eMs })) } : null);
+  }, [fireZones.length]);
 
   const mapRoute = bestRoute && floor === routeTitleFloor ? bestRoute : null;
 
@@ -174,7 +228,14 @@ module.exports = function App() {
   }, [fireZones]);
 
   function addFireAt({ floor: f, x, y }) {
+    fireTapTimeRef.current = perfNow();
     setFireZones((prev) => [...prev, createFireZone({ floor: f, x, y, radius: 0.016875 })]);
+  }
+
+  function resetRerouteTimingSamples() {
+    fireSamplesRef.current = [];
+    fireZonesLenTimingRef.current = fireZones.length;
+    setRerouteStats(null);
   }
 
   function onDevTap({ floor: f, x, y }) {
@@ -336,6 +397,57 @@ module.exports = function App() {
                             trackColor={{ false: "#334155", true: "rgba(14, 165, 233, 0.5)" }}
                             thumbColor={devMode ? "#7dd3fc" : "#64748b"}
                           />
+                        </View>
+                        <View style={styles.rerouteTimingBox}>
+                          <Text style={styles.rerouteTimingTitle}>Reroute timing</Text>
+                          <Text style={styles.rerouteTimingLine}>
+                            Last route recompute (any cause): {routeComputeMs.toFixed(2)} ms
+                          </Text>
+                          {rerouteStats?.recent?.length ? (
+                            <Text style={styles.rerouteTimingLine}>
+                              Avg (last {rerouteStats.recent.length}):{" "}
+                              {(
+                                rerouteStats.recent.reduce((a, s) => a + s.computeMs, 0) / rerouteStats.recent.length
+                              ).toFixed(2)}
+                              {" ms"} ·{" "}
+                              {(
+                                rerouteStats.recent.reduce((a, s) => a + s.e2eMs, 0) / rerouteStats.recent.length
+                              ).toFixed(2)}
+                              {" ms tap→after commit"}
+                            </Text>
+                          ) : null}
+                          <Text style={styles.rerouteTimingHint}>
+                            Past {REROUTE_HISTORY_SIZE} hazard adds (newest first). Tap→after commit includes React
+                            commit; recompute is getRoutes + safest path only.
+                          </Text>
+                          <Text style={styles.rerouteTimingSub}>Past {REROUTE_HISTORY_SIZE} calculations</Text>
+                          {Array.from({ length: REROUTE_HISTORY_SIZE }, (_, i) => {
+                            const s = rerouteStats?.recent[i];
+                            const rank = i + 1;
+                            const tag = i === 0 ? " (newest)" : i === REROUTE_HISTORY_SIZE - 1 ? " (oldest kept)" : "";
+                            return (
+                              <Text key={i} style={styles.rerouteTimingLine}>
+                                #{rank}
+                                {tag}
+                                {s
+                                  ? ` — recompute ${s.computeMs.toFixed(2)} ms · tap→after commit ${s.e2eMs.toFixed(2)} ms`
+                                  : " — —"}
+                              </Text>
+                            );
+                          })}
+                          {!rerouteStats?.recent?.length ? (
+                            <Text style={[styles.rerouteTimingMuted, styles.rerouteTimingMutedAfterRows]}>
+                              No hazard adds recorded yet. Turn Admin on and tap the map.
+                            </Text>
+                          ) : null}
+                          <Pressable
+                            onPress={resetRerouteTimingSamples}
+                            style={[styles.miniBtn, styles.miniBtnOutline, styles.rerouteResetBtn]}
+                            accessibilityRole="button"
+                            accessibilityLabel="Reset reroute timing samples"
+                          >
+                            <Text style={styles.miniBtnText}>Reset timing samples</Text>
+                          </Pressable>
                         </View>
                         <View style={styles.toolRow}>
                           <Text style={styles.toolLabel}>BLE position</Text>
@@ -688,4 +800,57 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(15, 23, 42, 0.6)",
   },
   miniBtnText: { fontSize: 13, fontWeight: "700", color: "#cbd5e1" },
+  rerouteTimingBox: {
+    marginTop: 4,
+    marginBottom: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+    backgroundColor: "rgba(15, 23, 42, 0.75)",
+    borderWidth: 1,
+    borderColor: "rgba(56, 189, 248, 0.25)",
+  },
+  rerouteTimingTitle: {
+    fontSize: 12,
+    fontWeight: "800",
+    color: "#7dd3fc",
+    textTransform: "uppercase",
+    letterSpacing: 0.6,
+    marginBottom: 8,
+  },
+  rerouteTimingLine: {
+    fontFamily: Platform.OS === "ios" ? "Menlo" : "monospace",
+    fontSize: 11,
+    color: "#e2e8f0",
+    lineHeight: 16,
+    marginBottom: 4,
+  },
+  rerouteTimingHint: {
+    fontSize: 10,
+    color: "#64748b",
+    lineHeight: 14,
+    marginBottom: 8,
+  },
+  rerouteTimingSub: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: "#94a3b8",
+    marginBottom: 6,
+  },
+  rerouteTimingMuted: {
+    fontSize: 12,
+    color: "#94a3b8",
+    lineHeight: 17,
+    marginBottom: 8,
+  },
+  rerouteTimingMutedAfterRows: {
+    marginTop: 6,
+    marginBottom: 0,
+  },
+  rerouteResetBtn: {
+    flex: 0,
+    alignSelf: "flex-start",
+    marginTop: 4,
+    paddingHorizontal: 12,
+  },
 });
