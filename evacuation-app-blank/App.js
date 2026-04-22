@@ -64,6 +64,11 @@ function makeDevMarkerId() {
   return `devm_${Date.now()}_${Math.random().toString(16).slice(2)}`;
 }
 
+function joinServiceUuids(serviceUuids) {
+  if (!Array.isArray(serviceUuids) || serviceUuids.length === 0) return "none";
+  return serviceUuids.join(", ");
+}
+
 module.exports = function App() {
   const insets = useSafeAreaInsets();
   const [floor, setFloor] = React.useState(1);
@@ -87,12 +92,17 @@ module.exports = function App() {
   const [mockLocationPresetId, setMockLocationPresetId] = React.useState(() =>
     getDefaultMockPresetIdForFloor(1)
   );
+  const [webBleScanActive, setWebBleScanActive] = React.useState(false);
+  const [webBleError, setWebBleError] = React.useState("");
+  const [webBleDevices, setWebBleDevices] = React.useState([]);
 
   const [rerouteStats, setRerouteStats] = React.useState(null);
   const lastRouteComputeRef = React.useRef(0);
   const fireZonesLenTimingRef = React.useRef(0);
   const fireSamplesRef = React.useRef([]);
   const fireTapTimeRef = React.useRef(0);
+  const webBleScanRef = React.useRef(null);
+  const webBleListenerRef = React.useRef(null);
 
   const floorConfig = React.useMemo(() => getFloorConfig(floor), [floor]);
   const mockLocationPresets = React.useMemo(() => getMockLocationPresets(floor), [floor]);
@@ -140,6 +150,84 @@ module.exports = function App() {
       },
     });
   }, [bleEnabled, bleMock, floor]);
+
+  const stopWebBleScan = React.useCallback(() => {
+    const nav = globalThis.navigator;
+    if (nav && nav.bluetooth && webBleListenerRef.current) {
+      nav.bluetooth.removeEventListener("advertisementreceived", webBleListenerRef.current);
+    }
+    if (webBleScanRef.current && typeof webBleScanRef.current.stop === "function") {
+      try {
+        webBleScanRef.current.stop();
+      } catch (_) {
+        // ignore
+      }
+    }
+    webBleScanRef.current = null;
+    webBleListenerRef.current = null;
+    setWebBleScanActive(false);
+  }, []);
+
+  React.useEffect(() => {
+    return () => {
+      stopWebBleScan();
+    };
+  }, [stopWebBleScan]);
+
+  async function startWebBleScan() {
+    if (Platform.OS !== "web") return;
+    const nav = globalThis.navigator;
+    if (!nav || !nav.bluetooth || typeof nav.bluetooth.requestLEScan !== "function") {
+      setWebBleError("Web Bluetooth scan is unavailable. Use Chrome/Edge over HTTPS or localhost.");
+      return;
+    }
+
+    setWebBleError("");
+    setWebBleDevices([]);
+
+    try {
+      const scan = await nav.bluetooth.requestLEScan({
+        acceptAllAdvertisements: true,
+        keepRepeatedDevices: true,
+      });
+
+      webBleScanRef.current = scan;
+      const onAdvertisement = (event) => {
+        const id = String(event?.device?.id || "unknown-device");
+        const name = String(event?.device?.name || "Unnamed");
+        const rssi = typeof event?.rssi === "number" ? event.rssi : null;
+        const txPower = typeof event?.txPower === "number" ? event.txPower : null;
+        const serviceUuids = Array.isArray(event?.uuids) ? event.uuids : [];
+        const seenAt = new Date().toLocaleTimeString();
+
+        setWebBleDevices((prev) => {
+          const next = [...prev];
+          const idx = next.findIndex((d) => d.id === id);
+          const entry = {
+            id,
+            name,
+            rssi,
+            txPower,
+            serviceUuids,
+            seenAt,
+          };
+          if (idx >= 0) {
+            next[idx] = entry;
+          } else {
+            next.unshift(entry);
+          }
+          return next.slice(0, 30);
+        });
+      };
+
+      webBleListenerRef.current = onAdvertisement;
+      nav.bluetooth.addEventListener("advertisementreceived", onAdvertisement);
+      setWebBleScanActive(true);
+    } catch (e) {
+      setWebBleError(String(e?.message || e || "Failed to start BLE scan on web."));
+      stopWebBleScan();
+    }
+  }
 
   const { bestRoute, routeTitleFloor, routeComputeMs } = React.useMemo(() => {
     const t0 = perfNow();
@@ -477,6 +565,59 @@ module.exports = function App() {
                             accessibilityHint="Keeps the map centered on your position"
                           />
                         </View>
+                        {Platform.OS === "web" ? (
+                          <View style={styles.webBleSection}>
+                            <Text style={styles.webBleTitle}>Web BLE scanner</Text>
+                            <Text style={styles.webBleHint}>
+                              Detect nearby BLE advertisements and inspect beacon identifiers for setup.
+                            </Text>
+                            <View style={styles.webBleActions}>
+                              <Pressable
+                                onPress={startWebBleScan}
+                                style={[styles.miniBtn, styles.miniBtnOutline, styles.webBleActionBtn]}
+                                disabled={webBleScanActive}
+                                accessibilityRole="button"
+                                accessibilityLabel="Start web BLE scan"
+                              >
+                                <Text style={styles.miniBtnText}>
+                                  {webBleScanActive ? "Scanning..." : "Start BLE scan"}
+                                </Text>
+                              </Pressable>
+                              <Pressable
+                                onPress={stopWebBleScan}
+                                style={[styles.miniBtn, styles.miniBtnOutline, styles.webBleActionBtn]}
+                                disabled={!webBleScanActive}
+                                accessibilityRole="button"
+                                accessibilityLabel="Stop web BLE scan"
+                              >
+                                <Text style={styles.miniBtnText}>Stop scan</Text>
+                              </Pressable>
+                            </View>
+                            {webBleError ? <Text style={styles.webBleError}>{webBleError}</Text> : null}
+                            {webBleDevices.length === 0 ? (
+                              <Text style={styles.webBleEmpty}>
+                                No BLE advertisements captured yet. Keep scan running and move near beacons.
+                              </Text>
+                            ) : (
+                              webBleDevices.map((d) => (
+                                <View key={d.id} style={styles.webBleDeviceCard}>
+                                  <Text style={styles.webBleDeviceName} numberOfLines={1}>
+                                    {d.name}
+                                  </Text>
+                                  <Text style={styles.webBleDeviceLine}>ID: {d.id}</Text>
+                                  <Text style={styles.webBleDeviceLine}>
+                                    RSSI: {typeof d.rssi === "number" ? `${d.rssi} dBm` : "unknown"}
+                                  </Text>
+                                  <Text style={styles.webBleDeviceLine}>
+                                    TX power: {typeof d.txPower === "number" ? `${d.txPower} dBm` : "unknown"}
+                                  </Text>
+                                  <Text style={styles.webBleDeviceLine}>UUIDs: {joinServiceUuids(d.serviceUuids)}</Text>
+                                  <Text style={styles.webBleDeviceSeen}>Last seen: {d.seenAt}</Text>
+                                </View>
+                              ))
+                            )}
+                          </View>
+                        ) : null}
                         <View style={styles.presetSection}>
                           <Text style={styles.toolLabel}>Test position (mock)</Text>
                           <Text style={[styles.toolHint, bleEnabled && styles.toolHintWarn]}>
@@ -852,5 +993,74 @@ const styles = StyleSheet.create({
     alignSelf: "flex-start",
     marginTop: 4,
     paddingHorizontal: 12,
+  },
+  webBleSection: {
+    marginTop: 6,
+    marginBottom: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+    backgroundColor: "rgba(15, 23, 42, 0.75)",
+    borderWidth: 1,
+    borderColor: "rgba(56, 189, 248, 0.25)",
+  },
+  webBleTitle: {
+    fontSize: 12,
+    fontWeight: "800",
+    color: "#7dd3fc",
+    textTransform: "uppercase",
+    letterSpacing: 0.6,
+  },
+  webBleHint: {
+    marginTop: 6,
+    fontSize: 12,
+    color: "#94a3b8",
+    lineHeight: 16,
+  },
+  webBleActions: {
+    flexDirection: "row",
+    gap: 8,
+    marginTop: 10,
+  },
+  webBleActionBtn: {
+    flex: 1,
+  },
+  webBleError: {
+    marginTop: 8,
+    fontSize: 12,
+    color: "#fda4af",
+    lineHeight: 16,
+  },
+  webBleEmpty: {
+    marginTop: 8,
+    fontSize: 12,
+    color: "#94a3b8",
+    lineHeight: 16,
+  },
+  webBleDeviceCard: {
+    marginTop: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    borderRadius: 10,
+    backgroundColor: "rgba(30, 41, 59, 0.7)",
+    borderWidth: 1,
+    borderColor: "rgba(148, 163, 184, 0.25)",
+  },
+  webBleDeviceName: {
+    fontSize: 12,
+    fontWeight: "800",
+    color: "#e2e8f0",
+    marginBottom: 3,
+  },
+  webBleDeviceLine: {
+    fontFamily: Platform.OS === "ios" ? "Menlo" : "monospace",
+    fontSize: 11,
+    color: "#cbd5e1",
+    lineHeight: 15,
+  },
+  webBleDeviceSeen: {
+    marginTop: 4,
+    fontSize: 11,
+    color: "#94a3b8",
   },
 });

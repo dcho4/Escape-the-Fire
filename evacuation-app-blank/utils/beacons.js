@@ -13,12 +13,60 @@
  * Later: load this from JSON / remote config instead of hardcoding.
  */
 const BLUECHARM_BEACONS = [
-  { beaconId: "BLUECHARM-F1-A", floor: 1, x: 0.12, y: 0.78, label: "F1 near exit A" },
-  { beaconId: "BLUECHARM-F1-B", floor: 1, x: 0.55, y: 0.82, label: "F1 corridor mid" },
-  { beaconId: "BLUECHARM-F1-C", floor: 1, x: 0.82, y: 0.35, label: "F1 east wing" },
-  { beaconId: "BLUECHARM-F2-A", floor: 2, x: 0.72, y: 0.72, label: "F2 landing" },
-  { beaconId: "BLUECHARM-F2-B", floor: 2, x: 0.35, y: 0.55, label: "F2 west" },
-  { beaconId: "BLUECHARM-F2-C", floor: 2, x: 0.88, y: 0.42, label: "F2 east" },
+  {
+    beaconId: "BLUECHARM-F1-A",
+    floor: 1,
+    x: 0.12,
+    y: 0.78,
+    label: "F1 near exit A",
+    txPowerAt1m: -59,
+    pathLossExponent: 2.0,
+  },
+  {
+    beaconId: "BLUECHARM-F1-B",
+    floor: 1,
+    x: 0.55,
+    y: 0.82,
+    label: "F1 corridor mid",
+    txPowerAt1m: -59,
+    pathLossExponent: 2.0,
+  },
+  {
+    beaconId: "BLUECHARM-F1-C",
+    floor: 1,
+    x: 0.82,
+    y: 0.35,
+    label: "F1 east wing",
+    txPowerAt1m: -59,
+    pathLossExponent: 2.0,
+  },
+  {
+    beaconId: "BLUECHARM-F2-A",
+    floor: 2,
+    x: 0.72,
+    y: 0.72,
+    label: "F2 landing",
+    txPowerAt1m: -59,
+    pathLossExponent: 2.0,
+  },
+  {
+    beaconId: "BLUECHARM-F2-B",
+    floor: 2,
+    x: 0.35,
+    y: 0.55,
+    label: "F2 west",
+    txPowerAt1m: -59,
+    pathLossExponent: 2.0,
+  },
+  {
+    beaconId: "BLUECHARM-F2-C",
+    floor: 2,
+    x: 0.88,
+    y: 0.42,
+    label: "F2 east",
+    txPowerAt1m: -59,
+    pathLossExponent: 2.0,
+  },
 ];
 
 function getBeaconsForFloor(floor) {
