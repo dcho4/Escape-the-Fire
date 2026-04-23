@@ -8,6 +8,7 @@ const {
   StyleSheet,
   ScrollView,
   Platform,
+  TextInput,
 } = require("react-native");
 const { GestureHandlerRootView } = require("react-native-gesture-handler");
 const { useSafeAreaInsets } = require("react-native-safe-area-context");
@@ -69,6 +70,45 @@ function joinServiceUuids(serviceUuids) {
   return serviceUuids.join(", ");
 }
 
+function normalizeBeaconRegistryPayload(payload) {
+  const raw = Array.isArray(payload) ? payload : Array.isArray(payload?.beacons) ? payload.beacons : [];
+  return raw
+    .map((item, idx) => {
+      const id = String(item?.beaconId || item?.id || item?.uuid || item?.mac || item?.name || `beacon-${idx}`);
+      const uuid = item?.uuid ? String(item.uuid).toLowerCase() : null;
+      const name = item?.name ? String(item.name) : null;
+      return {
+        id,
+        uuid,
+        name,
+        label: item?.label ? String(item.label) : id,
+        floor: typeof item?.floor === "number" ? item.floor : null,
+        x: typeof item?.x === "number" ? item.x : null,
+        y: typeof item?.y === "number" ? item.y : null,
+        major: item?.major ?? null,
+        minor: item?.minor ?? null,
+        source: item,
+      };
+    })
+    .filter((b) => b.id);
+}
+
+function findBeaconMatch(device, registry) {
+  if (!device || !Array.isArray(registry) || registry.length === 0) return null;
+  const id = String(device.id || "").toLowerCase();
+  const name = String(device.name || "").toLowerCase();
+  const uuids = Array.isArray(device.serviceUuids) ? device.serviceUuids.map((u) => String(u).toLowerCase()) : [];
+  return (
+    registry.find((b) => {
+      const bid = String(b.id || "").toLowerCase();
+      if (!bid) return false;
+      return id.includes(bid) || name.includes(bid);
+    }) ||
+    registry.find((b) => b.uuid && uuids.includes(b.uuid)) ||
+    null
+  );
+}
+
 module.exports = function App() {
   const insets = useSafeAreaInsets();
   const [floor, setFloor] = React.useState(1);
@@ -95,6 +135,12 @@ module.exports = function App() {
   const [webBleScanActive, setWebBleScanActive] = React.useState(false);
   const [webBleError, setWebBleError] = React.useState("");
   const [webBleDevices, setWebBleDevices] = React.useState([]);
+  const [webBeaconRegistryUrl, setWebBeaconRegistryUrl] = React.useState(
+    "https://example.com/beacons.json"
+  );
+  const [webBeaconRegistry, setWebBeaconRegistry] = React.useState([]);
+  const [webBeaconRegistryError, setWebBeaconRegistryError] = React.useState("");
+  const [webBeaconRegistryLoading, setWebBeaconRegistryLoading] = React.useState(false);
 
   const [rerouteStats, setRerouteStats] = React.useState(null);
   const lastRouteComputeRef = React.useRef(0);
@@ -226,6 +272,34 @@ module.exports = function App() {
     } catch (e) {
       setWebBleError(String(e?.message || e || "Failed to start BLE scan on web."));
       stopWebBleScan();
+    }
+  }
+
+  async function loadWebBeaconRegistry() {
+    if (Platform.OS !== "web") return;
+    const url = String(webBeaconRegistryUrl || "").trim();
+    if (!url) {
+      setWebBeaconRegistryError("Enter a URL that returns beacon JSON.");
+      return;
+    }
+    setWebBeaconRegistryLoading(true);
+    setWebBeaconRegistryError("");
+    try {
+      const res = await fetch(url);
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status} ${res.statusText || ""}`.trim());
+      }
+      const payload = await res.json();
+      const normalized = normalizeBeaconRegistryPayload(payload);
+      if (!normalized.length) {
+        throw new Error("No beacons found. Expected an array or { beacons: [...] }.");
+      }
+      setWebBeaconRegistry(normalized);
+    } catch (e) {
+      setWebBeaconRegistry([]);
+      setWebBeaconRegistryError(String(e?.message || e || "Failed to fetch beacon registry."));
+    } finally {
+      setWebBeaconRegistryLoading(false);
     }
   }
 
@@ -571,6 +645,38 @@ module.exports = function App() {
                             <Text style={styles.webBleHint}>
                               Detect nearby BLE advertisements and inspect beacon identifiers for setup.
                             </Text>
+                            <View style={styles.webBleRegistryBox}>
+                              <Text style={styles.webBleRegistryTitle}>Online beacon registry (JSON)</Text>
+                              <TextInput
+                                value={webBeaconRegistryUrl}
+                                onChangeText={setWebBeaconRegistryUrl}
+                                style={styles.webBleInput}
+                                autoCapitalize="none"
+                                autoCorrect={false}
+                                placeholder="https://your-domain.com/beacons.json"
+                                placeholderTextColor="#64748b"
+                                accessibilityLabel="Beacon registry URL"
+                              />
+                              <Pressable
+                                onPress={loadWebBeaconRegistry}
+                                style={[styles.miniBtn, styles.miniBtnOutline, styles.webBleFetchBtn]}
+                                accessibilityRole="button"
+                                accessibilityLabel="Fetch online beacon registry"
+                                disabled={webBeaconRegistryLoading}
+                              >
+                                <Text style={styles.miniBtnText}>
+                                  {webBeaconRegistryLoading ? "Fetching..." : "Fetch registry"}
+                                </Text>
+                              </Pressable>
+                              {webBeaconRegistryError ? (
+                                <Text style={styles.webBleError}>{webBeaconRegistryError}</Text>
+                              ) : null}
+                              {webBeaconRegistry.length ? (
+                                <Text style={styles.webBleRegistryMeta}>
+                                  Loaded {webBeaconRegistry.length} beacon entries from online source.
+                                </Text>
+                              ) : null}
+                            </View>
                             <View style={styles.webBleActions}>
                               <Pressable
                                 onPress={startWebBleScan}
@@ -599,7 +705,9 @@ module.exports = function App() {
                                 No BLE advertisements captured yet. Keep scan running and move near beacons.
                               </Text>
                             ) : (
-                              webBleDevices.map((d) => (
+                              webBleDevices.map((d) => {
+                                const match = findBeaconMatch(d, webBeaconRegistry);
+                                return (
                                 <View key={d.id} style={styles.webBleDeviceCard}>
                                   <Text style={styles.webBleDeviceName} numberOfLines={1}>
                                     {d.name}
@@ -612,9 +720,20 @@ module.exports = function App() {
                                     TX power: {typeof d.txPower === "number" ? `${d.txPower} dBm` : "unknown"}
                                   </Text>
                                   <Text style={styles.webBleDeviceLine}>UUIDs: {joinServiceUuids(d.serviceUuids)}</Text>
+                                  {match ? (
+                                    <Text style={styles.webBleMatchLine}>
+                                      Matched: {match.label}
+                                      {typeof match.floor === "number" ? ` · floor ${match.floor}` : ""}
+                                      {typeof match.x === "number" && typeof match.y === "number"
+                                        ? ` · (${match.x.toFixed(3)}, ${match.y.toFixed(3)})`
+                                        : ""}
+                                    </Text>
+                                  ) : webBeaconRegistry.length ? (
+                                    <Text style={styles.webBleNoMatchLine}>No registry match</Text>
+                                  ) : null}
                                   <Text style={styles.webBleDeviceSeen}>Last seen: {d.seenAt}</Text>
                                 </View>
-                              ))
+                              )})
                             )}
                           </View>
                         ) : null}
@@ -1022,6 +1141,39 @@ const styles = StyleSheet.create({
     gap: 8,
     marginTop: 10,
   },
+  webBleRegistryBox: {
+    marginTop: 10,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    borderRadius: 10,
+    backgroundColor: "rgba(30, 41, 59, 0.6)",
+    borderWidth: 1,
+    borderColor: "rgba(148, 163, 184, 0.25)",
+  },
+  webBleRegistryTitle: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: "#93c5fd",
+    marginBottom: 6,
+  },
+  webBleInput: {
+    borderWidth: 1,
+    borderColor: "rgba(148, 163, 184, 0.35)",
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    color: "#e2e8f0",
+    backgroundColor: "rgba(15, 23, 42, 0.6)",
+    fontSize: 12,
+  },
+  webBleFetchBtn: {
+    marginTop: 8,
+  },
+  webBleRegistryMeta: {
+    marginTop: 7,
+    fontSize: 11,
+    color: "#86efac",
+  },
   webBleActionBtn: {
     flex: 1,
   },
@@ -1062,5 +1214,15 @@ const styles = StyleSheet.create({
     marginTop: 4,
     fontSize: 11,
     color: "#94a3b8",
+  },
+  webBleMatchLine: {
+    marginTop: 4,
+    fontSize: 11,
+    color: "#86efac",
+  },
+  webBleNoMatchLine: {
+    marginTop: 4,
+    fontSize: 11,
+    color: "#fcd34d",
   },
 });
